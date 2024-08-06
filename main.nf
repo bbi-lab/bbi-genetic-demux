@@ -1,24 +1,32 @@
 #!/usr/bin/env nextflow
 
-// Version 0.0
+// Version 0.1
 
 nextflow.enable.dsl = 1
 
-params.inputFile = "$baseDir/Disteche_RNA3-041-042_nova.txt"
-params.outputDir = "$baseDir/results"
-params.run = "RNA3-041-042_nova"
-params.ref_fasta ="/net/bbi/vol1/data/genomes_stage/human/human_star/Homo_sapiens.GRCh38.dna.toplevel.fa.finished"
-params.vcf = "/net/bbi/vol1/data/sciRNAseq/benchmarking/resources/human_ref_vcf/common_variants_grch38.vcf"
+params.inputFile = ""
+params.outputDir = ""
+params.output_runName = "" 
+params.ref_fasta =""
+params.vcf = ""
 params.threads = 8
-params.k_range = Channel.from(21,22,23,24,25)  // Range of k-values to run SoupOrCell process in parallel 
 
-// Read in a .txt file that contains paths to sample directories 
-path_list = Channel.fromPath(params.inputFile)
-            .splitText()    // split at each line 
-            .map {it.trim()}    // trim any trailing new lines
+// Range of k-values to run SoupOrCell process in parallel in list format 
+// eg. ['1', '2']
+params.k_range =  ''
+kval_range = Channel.fromList(params.k_range).view()
+
+// Make copy of k-value range for socSummary and runSoupOrCell
+kval_range.into{kval_range_copy01; kval_range_copy02}
+
+// Read in a .csv file that contains paths to sample directories and run names
+run_info= Channel.fromPath(params.inputFile)
+            .splitCsv(header: true, sep: ',')
+            .map { row -> tuple( row.run_name, row.sample_path)}
+            .view()
 
 // Make copy of sample paths for bam and barcode files 
-path_list.into{path_list_copy01; path_list_copy02}
+run_info.into{run_info_copy01; run_info_copy02}
 
 
 /***
@@ -45,20 +53,19 @@ process processSample {
     // publishDir  path: "${params.outputDir}/", pattern: "*.bam", mode: 'copy'
 
     input:
-        val sample from path_list_copy01
+        tuple val(run_name), val(sample_path) from run_info_copy01
 
     output:
         file("*.bam") into processed_bams
 
     script:
-    def baseName = new File(sample).name
-    key = baseName
+        def sampleName = new File(sample_path).name
     """
     module load python/3.12.1
-    python /net/bbi/vol1/data/sciRNAseq/genetic_demultiplexing/reformat_sci_python3_test.py \
-        -i "${sample}" \
-        -r "${params.run}" \
-        -o "${baseName}_socReady"
+    reformat-sci-bam.py \
+        -i "${sample_path}" \
+        -r "${run_name}" \
+        -o "${run_name}_${sampleName}_socReady"
     """
 }
 
@@ -101,11 +108,10 @@ process mergeBams {
 
     module load samtools/1.19  
 
-    echo "testing"
     mkdir merged
-    samtools merge -o "merged/${params.run}_merged.bam" ${input_bam} 
-    samtools sort "merged/${params.run}_merged.bam" > "merged/${params.run}_merged_sorted.bam"
-    samtools index "merged/${params.run}_merged_sorted.bam"
+    samtools merge -o "merged/${params.output_runName}_merged.bam" ${input_bam} 
+    samtools sort "merged/${params.output_runName}_merged.bam" > "merged/${params.output_runName}_merged_sorted.bam"
+    samtools index "merged/${params.output_runName}_merged_sorted.bam"
     """
 }
 
@@ -132,20 +138,19 @@ process getBarcodes{
     queue = "shendure-long.q"
 
     input:
-        val sample_path from path_list_copy02
+        tuple val(run_name), val(sample_path) from run_info_copy02
 
     output: 
         file("*.tsv") into barcodes
 
     script:
-        def baseName = new File(sample_path).name
+        def sampleName = new File(sample_path).name
     """
     # bash watch for errors
     set -ueo pipefail
 
-    id=\$(md5sum "${sample_path}/umis_per_cell_barcode.txt" | cut -d' ' -f1)
-    awk -v run="${params.run}" '\$2 >= 100 {print \$1"_"run}' "${sample_path}/umis_per_cell_barcode.txt" \
-    > "\${id}_${baseName}_barcode.tsv"
+    awk -v run="${run_name}" '\$2 >= 100 {print \$1"_"run}' "${sample_path}/umis_per_cell_barcode.txt" \
+    > "${run_name}_${sampleName}_barcode.tsv"
     """
 }
 
@@ -182,7 +187,7 @@ process mergeBarcodes{
     # bash watch for errors
     set -ueo pipefail
    
-    cat ${input_files} > ${params.run}_merged_barcodes.tsv
+    cat ${input_files} > ${params.output_runName}_merged_barcodes.tsv
     """
 }
 
@@ -201,6 +206,7 @@ Notes:
 
 ***/
 
+
 process runSoupOrCell {
     cache 'lenient'
     executor 'sge'
@@ -212,7 +218,7 @@ process runSoupOrCell {
     input: 
         file input_bam from bam_dir
         file input_barcode from merged_barcodes
-        val kval from params.k_range
+        val kval from kval_range_copy01
 
     output: 
         file("soc_output_k*") into soc_output
@@ -229,7 +235,7 @@ process runSoupOrCell {
     singularity exec \
         --bind /net/bbi/vol1/data/  \
         /net/bbi/vol1/nobackup/apptainer/Demuxafy.sif \
-        souporcell_pipeline.py -i ${input_bam}/${params.run}_merged_sorted.bam -b ${input_barcode} -f ${params.ref_fasta} -t ${params.threads} -o soc_output_k${kval} -k ${kval} \
+        souporcell_pipeline.py -i ${input_bam}/${params.output_runName}_merged_sorted.bam -b ${input_barcode} -f ${params.ref_fasta} -t ${params.threads} -o soc_output_k${kval} -k ${kval} \
         --skip_remap SKIP_REMAP \
         --common_variants ${params.vcf} \
     """
@@ -251,7 +257,7 @@ process socSummary {
     publishDir path: "${params.outputDir}/", pattern: "soc_output_k*", mode: 'copy'
 
     input: 
-        val kval from kval_out
+        val kval from kval_range_copy02
         file soc_dir from soc_output
 
     output:
