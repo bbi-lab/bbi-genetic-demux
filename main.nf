@@ -1,18 +1,22 @@
 #!/usr/bin/env nextflow
 
-// Version 0.1
+// Version 0.2
 
 nextflow.enable.dsl = 1
 
 params.inputFile = ""
 params.outputDir = ""
-params.output_runName = "" 
+params.singularity_bindpath=""
+params.singularity_path= "" 
+params.output_runName = ""
+params.skip_remap = false // if true, need to provide a common variant file in params.vcf
 params.ref_fasta =""
-params.vcf = ""
+params.vcf = "" // leave blank to skip common variant and set params.skip_remap to false.
 params.threads = 8
 
+
 // Range of k-values to run SoupOrCell process in parallel in list format 
-// eg. ['1', '2']
+// eg. ['2', '3']
 params.k_range =  ''
 kval_range = Channel.fromList(params.k_range).view()
 
@@ -45,12 +49,7 @@ Notes:
 
 process processSample {
     cache 'lenient'
-    executor 'sge'
     memory '16 GB'
-    queue = "shendure-long.q"
-
-    
-    // publishDir  path: "${params.outputDir}/", pattern: "*.bam", mode: 'copy'
 
     input:
         tuple val(run_name), val(sample_path) from run_info_copy01
@@ -83,14 +82,9 @@ Notes: Merged bams are saved to a temp folder that will be used for downstream s
 
 ***/
 
-// save_merged_bam_temp = {params.outputDir + "/" + it - ~/merged.bam/ - ~/merged/ + "/" + it - ~/merged/}
-// save_merged_bai_temp = {params.outputDir + "/" + it - ~/merged.bam.bai/ - ~/merged/ + "/" + it - ~/merged/}
-
 process mergeBams {
     cache 'lenient'
-    executor 'sge'
     memory '64 GB'
-    queue = "shendure-long.q"
 
     publishDir path: "${params.outputDir}/", pattern: "merged", mode: 'copy'
 
@@ -133,9 +127,7 @@ Notes:
 
 process getBarcodes{
     cache 'lenient'
-    executor 'sge'
     memory  '16 GB'
-    queue = "shendure-long.q"
 
     input:
         tuple val(run_name), val(sample_path) from run_info_copy02
@@ -170,9 +162,7 @@ Notes:
 
 process mergeBarcodes{
     cache 'lenient'
-    executor 'sge'
     memory  '16 GB'
-    queue = "shendure-long.q"
 
     publishDir path: "${params.outputDir}/merged/", pattern: "*.tsv", mode: 'copy'
 
@@ -196,12 +186,39 @@ process mergeBarcodes{
 Process: Run SoupOrCell on merged bams files 
 
 Input: - .bam = Merged, sorted, and then indexed bam files. 
-       - .tsv = 
+       - .tsv = Merged and filtered barcodes
 
-Output: Merged barcodes .tsv with from each sample. 
+Output: - alt.mtx 
+        - ambient_rna.txt
+        - clusters_genotypes.vcf
+        - clustering.done
+        - clusters_tmp.tsv
+        - clusters.tsv
+        - common_variants_covered_tmp.vcf
+        - common_variants_covered.vcf
+        - consensus.done
+        - depth_merged.bed
+        - doublets.err
+        - ref.mtx
+        - troublet.done
+        - variants.done
+        - vatrix.done
 
-Published: Merged barcodes in .tsv format 
-
+Published:  - alt.mtx 
+            - ambient_rna.txt
+            - clusters_genotypes.vcf
+            - clustering.done
+            - clusters_tmp.tsv
+            - clusters.tsv
+            - common_variants_covered_tmp.vcf
+            - common_variants_covered.vcf
+            - consensus.done
+            - depth_merged.bed
+            - doublets.err
+            - ref.mtx
+            - troublet.done
+            - variants.done
+            - vatrix.done
 Notes: 
 
 ***/
@@ -209,8 +226,6 @@ Notes:
 
 process runSoupOrCell {
     cache 'lenient'
-    executor 'sge'
-    queue = "shendure-long.q"
     memory  '16 GB'
     cpus = '12'
     penv = 'serial'
@@ -225,7 +240,6 @@ process runSoupOrCell {
         val kval into kval_out
         
     script: 
-
     """
     # bash watch for errors
     set -ueo pipefail
@@ -233,10 +247,10 @@ process runSoupOrCell {
     mkdir -p soc_output_k"$kval"
 
     singularity exec \
-        --bind /net/bbi/vol1/data/  \
-        /net/bbi/vol1/nobackup/apptainer/Demuxafy.sif \
+        --bind ${params.singularity_bindpath}  \
+        ${params.singularity_path} \
         souporcell_pipeline.py -i ${input_bam}/${params.output_runName}_merged_sorted.bam -b ${input_barcode} -f ${params.ref_fasta} -t ${params.threads} -o soc_output_k${kval} -k ${kval} \
-        --skip_remap SKIP_REMAP \
+        --skip_remap ${params.skip_remap} \
         --common_variants ${params.vcf} \
     """
 
@@ -244,14 +258,20 @@ process runSoupOrCell {
 
 /**
 
-Process: Run SoupOrCell summary for the number of droplets classified as doublets, amiguous and assgiend to each cluster. 
+Process: Run SoupOrCell summary for the number of droplets classified as doublets, amiguous and assigned to each cluster. 
+
+Input: - clusters.tsv 
+
+Output: souporcell_summary.tsv 
+
+Published: souporcell_summary.tsv 
+
+Notes: 
 
 **/
 
 process socSummary {
     cache 'lenient'
-    executor 'sge'
-    queue = "shendure-long.q"
     memory  '32 GB'
 
     publishDir path: "${params.outputDir}/", pattern: "soc_output_k*", mode: 'copy'
@@ -264,15 +284,10 @@ process socSummary {
         file soc_dir into soc_summary
 
     script:    
-    
     """
     # bash watch for errors
     set -ueo pipefail
-
-    singularity exec \
-        --bind /net/bbi/vol1/data/ \
-        /net/bbi/vol1/nobackup/apptainer/Demuxafy.sif \
-        bash souporcell_summary.sh \
-        ${soc_dir}/clusters.tsv > ${soc_dir}/souporcell_summary.tsv
+    
+    souporcell_summary.sh ${soc_dir}/clusters.tsv > ${soc_dir}/souporcell_summary.tsv
     """
 }
