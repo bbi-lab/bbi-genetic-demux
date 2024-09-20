@@ -40,7 +40,7 @@ git clone https://github.com/bbi-lab/bbi-genetic-demux.git
 ### Input Data
 To run the pipeline, you will need a `run_info.csv` sheet and an `experiment.config` sheet. The `run_info.csv` contains the run name and paths for each sample. The `experiment.config` sheet contains various parameters and specifications such as paths to the reference genome fasta/vcf files, and the range of k-values to run genetic demultiplexing on. Refer to the example sheets in the GitHub repository on how to set up these two sheets. 
 
-The sample required inputs are `.bam` and `umis_per_cell_barcode.txt` files generated from the `bbi-sci` pipeline. The pipeline assumes that these files are organized within directories named after each sample and this sample path should be specified in your `run_info.csv` sheet.
+The sample required inputs are `.bam` and `umis_per_cell_barcode.txt` files generated from the bbi-sci pipeline. The pipeline assumes that these files are organized within directories named after each sample and this sample path should be specified in your `run_info.csv` sheet.
 
 Here is an example tree set up: 
 
@@ -54,12 +54,12 @@ Here is an example tree set up:
      └── umis_per_cell_barcode.txt
 ```
 
-A test data set and reference files are provided in the `test_data` directory in the Github repository. If you are running on the test dataset, set the k-value to 2 in the `experiment.config` sheet (eg. `params.k_range= ['2']`) since there are two donors in the test database. We have also provided the SoupOrCell Singularity Image in the `souporcell_image` directory. Set the `params.singularity_path` with the path to `souporcell.sif`. 
+A test data set and reference files are provided in the `test_data` directory in the Github repository. If you are running on the test dataset, set the k-value to 2 in the `experiment.config` sheet (eg. `params.k_range= ['2']`) since there are two donors in the test dataset. We have also provided the SoupOrCell Singularity Image in the `souporcell_image` directory. Set the `params.singularity_path` with the path to `souporcell.sif`. 
 
 
 ### Run Nextflow 
 
-Within your terminal multiplexers and an interactive qlogin session, cd to your current work directory and run the Nextflow pipeline using the following command:
+Within your terminal multiplexer and an interactive qlogin session, cd to your current work directory and run the Nextflow pipeline using the following command:
 
 ```
 nextflow run ~/git/bbi-genetic-demux/main.nf -c experiment.config
@@ -72,7 +72,7 @@ nextflow run ~/git/bbi-genetic-demux/main.nf -c experiment.config -with-trace ge
 
 ### Output files 
 
-If the pipeline was successful, you should see the following files in your output directory:
+If the pipeline is successful, you should see the following files in your output directory:
 
 ```
 /path/to/output/
