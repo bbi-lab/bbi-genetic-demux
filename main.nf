@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-// Version 0.2
+// Version 0.3
 
 nextflow.enable.dsl = 1
 
