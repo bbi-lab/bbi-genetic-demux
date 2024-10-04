@@ -86,13 +86,13 @@ process mergeBams {
     cache 'lenient'
     memory '64 GB'
 
-    publishDir path: "${params.outputDir}/", pattern: "merged", mode: 'copy'
+    publishDir path: "${params.outputDir}/merged/", pattern: "*sorted*", mode: 'copy'
 
     input: 
         file input_bam from processed_bams.collect()
 
     output: 
-        file("merged") into bam_dir 
+        file("*sorted*") into bam_dir 
 
     script:
 
@@ -102,10 +102,9 @@ process mergeBams {
 
     module load samtools/1.19  
 
-    mkdir merged
-    samtools merge -o "merged/${params.output_runName}_merged.bam" ${input_bam} 
-    samtools sort "merged/${params.output_runName}_merged.bam" > "merged/${params.output_runName}_merged_sorted.bam"
-    samtools index "merged/${params.output_runName}_merged_sorted.bam"
+    samtools merge -o "${params.output_runName}_merged.bam" ${input_bam} 
+    samtools sort "${params.output_runName}_merged.bam" > "${params.output_runName}_merged_sorted.bam"
+    samtools index "${params.output_runName}_merged_sorted.bam"
     """
 }
 
@@ -231,7 +230,7 @@ process runSoupOrCell {
     penv = 'serial'
 
     input: 
-        file input_bam from bam_dir
+        set file(input_bam), file (input_bai) from bam_dir
         file input_barcode from merged_barcodes
         val kval from kval_range_copy01
 
@@ -249,7 +248,7 @@ process runSoupOrCell {
     singularity exec \
         --bind ${params.singularity_bindpath}  \
         ${params.singularity_path} \
-        souporcell_pipeline.py -i ${input_bam}/${params.output_runName}_merged_sorted.bam -b ${input_barcode} -f ${params.ref_fasta} -t ${params.threads} -o soc_output_k${kval} -k ${kval} \
+        souporcell_pipeline.py -i ${input_bam} -b ${input_barcode} -f ${params.ref_fasta} -t ${params.threads} -o soc_output_k${kval} -k ${kval} \
         --skip_remap ${params.skip_remap} \
         --common_variants ${params.vcf} \
     """
